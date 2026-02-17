@@ -203,6 +203,18 @@ Notion에 견적서를 작성하면 자동으로 공유 링크가 생성되기�
 - 색상 대비 WCAG AA 기준 준수
 - 키보드 내비게이션 지원 (PDF 버튼 포함)
 
+### 4.5 상태 필터링
+
+- **공개 URL 접근 제한:** `status`가 `sent` 이상인 견적서만 조회 가능
+  - `draft` 상태 견적서는 404로 반환
+  - 관리자가 발행 전 실수로 링크를 공유하는 것 방지
+
+### 4.6 검색 엔진 차단
+
+- `robots.txt`에 `/quote/` 경로 차단 또는
+- 견적서 페이지 메타데이터에 `noindex` 태그 추가
+- UUID 기반 접근이지만, 불의의 SEO 노출 방지
+
 ---
 
 ## 5. 기술 아키텍처
@@ -212,9 +224,10 @@ Notion에 견적서를 작성하면 자동으로 공유 링크가 생성되기�
 ```
 app/
 └── (public)/                          # 공개 접근 라우트 그룹 (신규)
+    ├── layout.tsx                     # 공개 페이지 레이아웃 (테마 고정) (신규)
     └── quote/
         └── [id]/
-            └── page.tsx               # 견적서 공개 뷰 페이지 (서버 컴포넌트)
+            └── page.tsx               # 견적서 공개 뷰 페이지 (서버 컴포넌트) (신규)
 
 app/
 └── api/
@@ -230,7 +243,7 @@ components/
 │   ├── quote-summary.tsx            # 소계/세금/총액 요약 (신규)
 │   └── quote-error.tsx             # 오류 안내 컴포넌트 (신규)
 ├── molecules/
-│   └── pdf-download-button.tsx      # PDF 다운로드 버튼 (클라이언트 컴포넌트) (신규)
+│   └── pdf-download-button.tsx      # PDF 다운로드 버튼 (클라이언트 컴포넌트, 파일명 자동화) (신규)
 
 lib/
 ├── notion/
@@ -244,6 +257,29 @@ lib/
 types/
 └── quote.ts                        # Quote, QuoteItem 타입 정의 (신규)
 ```
+
+### 5.1.1 공개 페이지 레이아웃 (`app/(public)/layout.tsx`)
+
+```typescript
+// app/(public)/layout.tsx
+import { ReactNode } from "react";
+
+export default function PublicLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="ko" suppressHydrationWarning>
+      <body className="bg-white text-black dark:bg-white dark:text-black">
+        {/* 공개 페이지는 헤더/푸터 없음, 테마 강제 라이트 모드 */}
+        {children}
+      </body>
+    </html>
+  );
+}
+```
+
+**목적:**
+- 헤더/푸터 제거 (루트 레이아웃의 DefaultLayout 미적용)
+- 다크모드 강제 비활성화 (항상 라이트 테마 유지)
+- 견적서 출력/PDF 생성 시 일관된 모양 보장
 
 ### 5.2 데이터 흐름
 
@@ -361,18 +397,47 @@ NOTION_QUOTE_DATABASE_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ### 6.3 인쇄/PDF 스타일 규칙
 
 ```css
+/* A4 페이지 레이아웃 설정 */
+@page {
+  size: A4;
+  margin: 20mm;
+}
+
 /* 인쇄 시 숨길 요소 */
 @media print {
   .pdf-download-button { display: none; }
   .page-header { display: none; }
   .page-footer { display: none; }
+  /* 기본 헤더/푸터 제거 */
+  @page { margin-top: 0; margin-bottom: 0; }
 }
 
-/* 인쇄 시 강제 적용 */
+/* 인쇄 시 강제 적용 - 색상 유지 */
 @media print {
-  body { -webkit-print-color-adjust: exact; }
-  .quote-container { box-shadow: none; border: 1px solid #e5e7eb; }
-  page { size: A4; margin: 20mm; }
+  /* 정확한 색상 인쇄 활성화 */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 견적서 컨테이너 */
+  .quote-container {
+    box-shadow: none;
+    border: 1px solid #e5e7eb;
+    page-break-inside: avoid;
+  }
+
+  /* 테이블 페이지 나누기 방지 */
+  table { page-break-inside: avoid; }
+  tr { page-break-inside: avoid; }
+}
+
+/* 다크모드에서 강제 라이트 테마 (인쇄용) */
+@media print {
+  body { background: white; color: black; }
+  .quote-container { background: white; }
+  table { background: white; color: black; }
+  th, td { background: white; color: black; border-color: #e5e7eb; }
 }
 ```
 
@@ -456,9 +521,109 @@ GET /api/quotes/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 ---
 
+## 7.1 PDF 다운로드 기능 상세 구현
+
+### PDF 파일명 자동화 (document.title 기법)
+
+`window.print()`에서 PDF 파일명을 자동으로 설정하는 방법:
+
+```typescript
+// components/molecules/pdf-download-button.tsx
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
+import type { Quote } from "@/types/quote";
+
+interface PDFDownloadButtonProps {
+  quote: Quote;
+}
+
+export function PDFDownloadButton({ quote }: PDFDownloadButtonProps) {
+  const handlePrint = () => {
+    // 원본 제목 저장
+    const originalTitle = document.title;
+
+    // 1. 파일명으로 사용할 제목으로 임시 변경
+    // Chrome: document.title이 PDF 파일명 기본값
+    document.title = `견적서_${quote.quoteNumber}_${quote.clientName}`;
+
+    // 2. 프린트 다이얼로그 열기
+    window.print();
+
+    // 3. 복원 (프린트 다이얼로그 닫힌 후)
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 100);
+  };
+
+  return (
+    <Button
+      onClick={handlePrint}
+      className="w-full gap-2"
+      variant="default"
+    >
+      <Download className="h-4 w-4" />
+      PDF 다운로드
+    </Button>
+  );
+}
+```
+
+**동작 원리:**
+- Chrome, Firefox, Edge에서 `document.title`이 PDF 저장 시 기본 파일명으로 사용됨
+- Safari에서는 기본값으로 페이지 제목 사용
+- 사용자가 프린트 미리보기에서 파일명 수정 가능
+
+**장점:**
+- 추가 라이브러리 필요 없음
+- 구현 매우 간단 (코드 5줄)
+- 모든 현대 브라우저 지원
+
+### 7.3 견적서 상태 필터링 (draft 상태 제외)
+
+**서버 컴포넌트에서 draft 상태 필터링:**
+
+```typescript
+// app/(public)/quote/[id]/page.tsx
+import { notFound } from "next/navigation";
+import { notion } from "@/lib/notion";
+import { mapPageToQuote } from "@/lib/notion/quote-mapper";
+
+export const revalidate = 60;
+
+export default async function QuotePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  try {
+    const page = await notion.pages.retrieve({ page_id: id });
+
+    // ❌ draft 상태 필터링: 404 반환
+    if ("properties" in page && page.properties.status?.type === "select") {
+      const status = page.properties.status.select?.name;
+      if (status === "draft") {
+        notFound();
+      }
+    }
+
+    const quote = mapPageToQuote(page);
+    return <QuoteView quote={quote} />;
+  } catch (error) {
+    notFound();
+  }
+}
+```
+
+**의미:**
+- `draft` 상태 견적서는 웹에서 공개되지 않음
+- 관리자 실수로 링크를 공유해도 안전
+- 상태를 `sent`로 변경해야만 클라이언트가 볼 수 있음
+
+---
+
 ## 8. 데이터 모델
 
-### 8.1 Notion 데이터베이스 스키마
+### 8.1 Notion 데이터베이스 스키마 (데이터 모델 선택 중요)
 
 Notion 데이터베이스에 다음 속성(Property)이 필요하다.
 
@@ -478,9 +643,9 @@ Notion 데이터베이스에 다음 속성(Property)이 필요하다.
 | `issuerName` | Rich Text | 발행자 이름 | 홍길동 |
 | `issuerContact` | Rich Text | 발행자 연락처 | 010-1234-5678 |
 
-#### 견적 항목 (Line Items) - Notion 하위 데이터베이스 또는 블록
+#### 견적 항목 (Line Items) - 두 가지 옵션
 
-**옵션 A: 별도 데이터베이스 (권장)**
+**⭐ 옵션 A: 별도 데이터베이스 (MVP 권장 - 안정성↑)**
 
 | 필드명 | Notion 속성 타입 | 설명 | 예시 |
 |--------|-----------------|------|------|
@@ -491,7 +656,18 @@ Notion 데이터베이스에 다음 속성(Property)이 필요하다.
 | `amount` | Formula | 금액 (단가 × 수량) | `prop("unitPrice") * prop("quantity")` |
 | `order` | Number | 항목 순서 | 1 |
 
-**옵션 B: 견적서 본문 블록 (간단한 구현)**
+**장점:**
+- Number 타입으로 타입 안전성 보장
+- 파싱 로직 최소화
+- 금액 계산 정확도 높음
+
+**단점:**
+- 초기 Notion DB 설정 복잡도 높음
+- `database.query()` 시 Relation 필터 필요
+
+---
+
+**옵션 B: 견적서 본문 블록 (간단한 구현 - 복잡도↓)**
 
 견적서 Notion 페이지 본문에 테이블 블록으로 항목을 입력하고, Notion Blocks API로 조회한다.
 
@@ -502,7 +678,25 @@ Notion 데이터베이스에 다음 속성(Property)이 필요하다.
 | 디자인   | 300,000 | 2   |   600,000|
 ```
 
-**MVP 권장:** 옵션 B (블록 테이블)로 시작하여 구현 복잡도를 낮춘다.
+**장점:**
+- Notion DB 설정 간단
+- 초기 구현 속도 빠름
+
+**단점:**
+- Rich Text → 숫자 파싱 필요 (타입 안전성 낮음)
+- 천단위 콤마, 한글 입력 등 예외 처리 필요
+- 금액 계산 오류 가능성 높음
+
+---
+
+**최종 권장:**
+- **안정적 서비스**: 옵션 A (관계형 DB) - 구현 시간 5~5.5일
+- **빠른 프로토타입**: 옵션 B + 강건한 파싱 - 구현 시간 6~7일
+
+> **중요**: 옵션 B 선택 시 `lib/notion/quote-mapper.ts`에서 다음을 반드시 구현하세요:
+> - Rich Text에서 숫자 추출: 천단위 콤마 제거, "500,000" → 500000
+> - 유효하지 않은 입력 처리: 기본값 0 또는 에러 throw
+> - Zod 검증으로 런타임 안전성 보장
 
 ### 8.2 TypeScript 타입 정의
 
@@ -555,8 +749,20 @@ export const quoteItemSchema = z.object({
   order: z.number().int().nonnegative(),
 });
 
+/**
+ * Notion ID 검증: 32자 문자열(하이픈 없음) 또는 표준 UUID 형식 모두 허용
+ * - 32자 형식: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (URL에서 복사한 형태)
+ * - UUID 형식: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (표준 형식)
+ */
+const notionIdSchema = z.string().refine(
+  (val) =>
+    /^[0-9a-f]{32}$/.test(val) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val),
+  "유효한 Notion 페이지 ID 형식이 아닙니다 (32자 문자열 또는 UUID 형식)"
+);
+
 export const quoteSchema = z.object({
-  id: z.string().uuid(),
+  id: notionIdSchema,
   quoteNumber: z.string().min(1),
   title: z.string().min(1),
   clientName: z.string().min(1),
@@ -741,4 +947,106 @@ export type QuoteInput = z.infer<typeof quoteSchema>;
 
 ---
 
-*이 PRD는 MVP 구현을 위한 최소 명세입니다. v2 기능(디지털 서명, 결제, 이메일 발송)은 MVP 검증 후 별도 PRD로 작성합니다.*
+---
+
+## 11. 기술 검증 및 추가 고려사항
+
+### 11.1 데이터 모델 선택 재검토
+
+**validator 에이전트 검증 결과:**
+
+- **옵션 A (관계형 DB)**: 초기 설정 복잡하나, 타입 안전성과 안정성 최고
+  - 예상 구현 시간: 5~5.5일 (권장)
+
+- **옵션 B (블록 테이블)**: 초기 설정 간단하나, Rich Text 파싱 복잡도 높음
+  - 예상 구현 시간: 6~7일
+  - 필수: `quote-mapper.ts`에서 강건한 숫자 파싱 로직 구현
+
+**최종 권장:** 안정성을 우선으로 하면 옵션 A, 빠른 프로토타입을 우선으로 하면 옵션 B (강건한 파싱 필수)
+
+### 11.2 검증된 주요 수정사항
+
+✅ **완료된 수정:**
+1. Notion ID 형식 검증: 32자 문자열 + UUID 형식 모두 허용
+2. `@page` CSS 구문 정확화 및 다크모드 대응 추가
+3. `(public)` 라우트 레이아웃 파일 추가
+4. PDF 파일명 자동화 (`document.title` 기법)
+5. Draft 상태 필터링 구현 코드 추가
+6. 상태 기반 접근 제어 명시
+
+### 11.3 성능 최적화 팁
+
+- **캐싱 전략:** `revalidate = 60` (60초 캐시)
+- **Notion API 호출 최소화:** 옵션 A 사용 시 호출 2회, 옵션 B 시 3회
+- **병렬 처리:** 메타데이터 생성과 페이지 렌더링에서 동일 데이터 메모이제이션
+
+### 11.4 보안 베스트 프랙티스
+
+1. **robots.txt 설정:**
+   ```
+   User-agent: *
+   Disallow: /quote/
+   ```
+
+2. **SEO 메타 태그:**
+   ```typescript
+   export const metadata = {
+     robots: {
+       index: false,
+       follow: false,
+       noindex: true,
+     },
+   };
+   ```
+
+3. **환경 변수 관리:**
+   - `.env.local`에 `NOTION_API_KEY` 저장
+   - `.gitignore`에 `.env.local` 포함 확인
+
+### 11.5 브라우저 호환성 테스트 체크리스트
+
+- [ ] Chrome (Windows/Mac/iOS) - PDF 파일명 자동화 테스트
+- [ ] Firefox - window.print() 동작 확인
+- [ ] Safari (Mac/iOS) - 인쇄 레이아웃 확인
+- [ ] Edge - CSS 적용 확인
+- [ ] 모바일 환경 - 반응형 레이아웃 확인
+
+### 11.6 알려진 제약사항
+
+| 제약사항 | 설명 | 해결책 |
+|---------|------|--------|
+| PDF 파일명 | Safari에서 document.title이 PDF 파일명으로 사용 안 됨 | 사용자가 수동 입력 |
+| 한글 폰트 | 현재 Geist 폰트는 라틴 전용 | Noto Sans KR 추가 (선택) |
+| 금액 정밀도 | JS 부동소수점 연산 오차 | Math.round() 처리 |
+| API 레이트 제한 | Notion API 3 req/s | 캐싱으로 대부분 해결 |
+
+### 11.7 v2+ 로드맵 제안
+
+**MVP 이후 검토 사항:**
+- 디지털 서명 (DocuSign 등)
+- 자동 이메일 발송
+- 만료일 기반 접근 제어
+- 고급 통계/분석
+- 다국어 지원
+
+---
+
+## 12. 수정 이력
+
+| 버전 | 작성일 | 변경사항 |
+|------|--------|---------|
+| v1.0.0 | 2026-02-17 | 초기 PRD 작성 |
+| v1.1.0 | 2026-02-17 | 기술 검증 기반 수정 사항 적용 |
+| | | - 데이터 모델 (옵션 A/B) 명확화 |
+| | | - UUID 검증 수정 (32자 + UUID 형식) |
+| | | - CSS 구문 정정 (@page) |
+| | | - (public) 레이아웃 추가 |
+| | | - PDF 파일명 자동화 기법 추가 |
+| | | - Draft 필터링 구현 코드 추가 |
+| | | - 보안 베스트 프랙티스 추가 |
+
+---
+
+*이 PRD는 MVP 구현을 위한 명세입니다. 기술 검증을 거쳐 실현 가능성이 확인되었습니다.*
+*예상 구현 기간: 5.5~6.5일 (데이터 모델 선택에 따라 상이)*
+*v2 기능(디지털 서명, 결제, 이메일 발송)은 MVP 검증 후 별도 PRD로 작성합니다.*
