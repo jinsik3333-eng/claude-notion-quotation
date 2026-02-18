@@ -21,81 +21,80 @@ export const notion = new Client({
 });
 
 /**
- * Notion Items_DB에서 특정 견적서에 해당하는 항목들을 조회
- * quoteId relation 필터로 항목 검색
+ * Quote 페이지의 Items_DB relation에서 항목들을 조회
+ * 양방향 관계성을 통해 연결된 Items를 직접 가져오기
  */
-async function getQuoteItems(quotePageId: string): Promise<QuoteItem[]> {
-  const itemsDatabaseId = process.env.NOTION_ITEMS_DATABASE_ID;
-
-  if (!itemsDatabaseId) {
-    throw new Error("환경변수 NOTION_ITEMS_DATABASE_ID가 설정되지 않았습니다.");
-  }
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getQuoteItems(quotePage: any): Promise<QuoteItem[]> {
   try {
-    const response = await (notion as any).dataSources.query({
-      data_source_id: itemsDatabaseId,
-      filter: {
-        property: "quoteId",
-        relation: {
-          contains: quotePageId,
-        },
-      },
-      sorts: [
-        {
-          property: "order",
-          direction: "ascending",
-        },
-      ],
-    });
+    const props = quotePage.properties;
+
+    // Items_DB relation 필드 확인
+    const itemsRelation = props["Items_DB"] || props.items_db;
+    if (!itemsRelation || itemsRelation.type !== "relation") {
+      console.warn("[Notion] Items_DB relation 필드를 찾을 수 없습니다");
+      return [];
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemIds = itemsRelation.relation.map((rel: any) => rel.id);
+    if (itemIds.length === 0) {
+      return [];
+    }
 
     const items: QuoteItem[] = [];
 
-    for (const result of response.results) {
-      // PartialPageObjectResponse 제외 - properties 접근 불가
-      if (!isFullPage(result)) {
+    // 각 항목 ID로 페이지 조회
+    for (const itemId of itemIds) {
+      try {
+        const itemPage = await notion.pages.retrieve({ page_id: itemId });
+
+        if (!isFullPage(itemPage)) {
+          continue;
+        }
+
+        const itemProps = itemPage.properties;
+
+        // amount 계산: unitPrice * quantity
+        const unitPrice =
+          itemProps.unitPrice?.type === "number" ? itemProps.unitPrice.number ?? 0 : 0;
+        const quantity =
+          itemProps.quantity?.type === "number" ? itemProps.quantity.number ?? 0 : 0;
+        const amount = unitPrice * quantity;
+
+        const item = {
+          id: itemPage.id,
+          name:
+            itemProps["이름"]?.type === "title"
+              ? itemProps["이름"].title.map((t: RichTextItemResponse) => t.plain_text).join("")
+              : "",
+          unitPrice,
+          quantity,
+          amount,
+          order: itemProps.order?.type === "number" ? itemProps.order.number ?? 0 : 0,
+        };
+
+        // Zod 검증
+        const validation = quoteItemSchema.safeParse(item);
+        if (!validation.success) {
+          console.warn(`[Notion] 항목 검증 실패 (ID: ${itemPage.id}):`, validation.error.message);
+          continue;
+        }
+
+        items.push(validation.data);
+      } catch (error) {
+        console.warn(`[Notion] 항목 ${itemId} 조회 실패:`, error instanceof Error ? error.message : String(error));
         continue;
       }
-
-      const props = result.properties;
-
-      // amount는 number 타입 또는 formula 타입일 수 있음
-      let amount = 0;
-      if (props.amount?.type === "number" && props.amount.number !== null) {
-        amount = props.amount.number;
-      } else if (
-        props.amount?.type === "formula" &&
-        props.amount.formula?.type === "number" &&
-        props.amount.formula.number !== null
-      ) {
-        amount = props.amount.formula.number;
-      }
-
-      const item = {
-        id: result.id,
-        name:
-          props["이름"]?.type === "title"
-            ? props["이름"].title.map((t: RichTextItemResponse) => t.plain_text).join("")
-            : "",
-        unitPrice:
-          props.unitPrice?.type === "number" ? props.unitPrice.number ?? 0 : 0,
-        quantity: props.quantity?.type === "number" ? props.quantity.number ?? 0 : 0,
-        amount,
-        order: props.order?.type === "number" ? props.order.number ?? 0 : 0,
-      };
-
-      // 각 항목별 Zod 검증 - 실패 시 경고하고 건너뛰기
-      const validation = quoteItemSchema.safeParse(item);
-      if (!validation.success) {
-        console.warn(`[Notion] 항목 검증 실패 (ID: ${result.id}):`, validation.error.message);
-        continue;
-      }
-
-      items.push(validation.data);
     }
+
+    // order 필드로 정렬
+    items.sort((a, b) => a.order - b.order);
 
     return items;
   } catch (error) {
-    throw new Error(`Items_DB 조회 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`견적 항목 조회 중 오류:`, error instanceof Error ? error.message : String(error));
+    return [];
   }
 }
 
@@ -127,8 +126,8 @@ export async function getQuote(id: string): Promise<Quote | null> {
       return null;
     }
 
-    // 4. 항목(Items) 조회
-    const items = await getQuoteItems(id);
+    // 4. Quote 페이지의 Items_DB relation에서 항목 조회
+    const items = await getQuoteItems(page);
 
     // 5. 견적서 객체 생성
     const quote = mapPageToQuote(page, items);

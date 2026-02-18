@@ -26,7 +26,7 @@ export function mapPageToQuote(
 
   // Notion에서 taxRate는 % 형식(정수, 예: 10 = 10%)으로 저장됨
   // 기존 데이터와의 호환을 위해 소수 형식(0.1 = 10%)도 지원
-  let taxRateValue =
+  const taxRateValue =
     props.taxRate?.type === "number" && props.taxRate.number !== null
       ? props.taxRate.number
       : DEFAULT_TAX_RATE;

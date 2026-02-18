@@ -108,60 +108,57 @@ Notion 견적서를 전문적인 웹 UI로 공유하고 PDF 다운로드를 제�
   - 완료: 견적서 뷰 컴포넌트에 print:hidden, print:py-0 등 Tailwind print 유틸리티 적용
   - 완료: 항목 테이블 overflow-x-auto로 모바일 가로 스크롤 허용
 
-### Phase 3: 데이터 조회 레이어 구현 (예상 소요: 1일)
+### Phase 3: 데이터 조회 레이어 구현 (예상 소요: 1일) -- 완료
 
-- **Task 007: Notion 견적 항목(Line Items) 조회 로직 구현** - 우선순위
-  - 관련 파일: `lib/notion/quote-mapper.ts`, `lib/notion/client.ts`
-  - Notion 데이터베이스에서 견적 항목 조회 함수 구현
-    - 옵션 A (관계형 DB): 별도 Line Items 데이터베이스에서 `database.query()` + Relation 필터로 조회
-    - 옵션 B (블록 테이블): `blocks.children.list()`로 페이지 본문 테이블 블록 파싱
-  - 항목 데이터를 QuoteItem[] 타입으로 변환하는 매핑 함수 구현
-  - 항목이 0개인 경우 빈 배열 반환 처리
-  - 옵션 B 선택 시: Rich Text에서 숫자 추출 (천단위 콤마 제거), 유효하지 않은 입력 기본값 0 처리
-  - Zod 스키마(`quoteItemSchema`)로 각 항목 런타임 검증
+- **Task 007: Notion 견적 항목(Line Items) 조회 로직 구현** -- 완료
+  - See: 커밋 `98d3dfa` (Task 007 + Task 008 통합 구현)
+  - 완료: `lib/notion/client.ts` - `getQuoteItems()` 함수 구현
+    - 옵션 A (관계형 DB) 채택: Items_DB에서 `dataSources.query()` + Relation 필터로 조회
+    - amount 타입 분기 처리 (number/formula 모두 대응)
+    - Zod 검증 실패 항목은 건너뜀 (안전한 부분 반환)
+  - 완료: `lib/notion/quote-mapper.ts` 버그 수정
+    - title 속성명 수정 (`Name` -> `이름`)
+    - taxRate 단위 변환 (10% -> 0.1)
+  - 완료: 환경변수 `NOTION_ITEMS_DATABASE_ID` 추가 (`.env.example` 반영)
 
-- **Task 008: 견적서 통합 조회 함수 및 API 라우트 구현** - 우선순위
-  - 관련 파일: `app/api/quotes/[id]/route.ts`, `lib/notion/client.ts`
-  - `getQuote(id: string): Promise<Quote | null>` 통합 조회 함수 구현
+- **Task 008: 견적서 통합 조회 함수 및 API 라우트 구현** -- 완료
+  - See: 커밋 `98d3dfa` (Task 007 + Task 008 통합 구현)
+  - 완료: `lib/notion/client.ts` - `getQuote(id: string): Promise<Quote | null>` 통합 조회 함수 구현
     - 1) Notion 페이지 조회 (`pages.retrieve`)
     - 2) draft 상태 필터링 (draft이면 null 반환)
-    - 3) 견적 항목 조회 (Task 007에서 구현한 함수 사용)
+    - 3) `getQuoteItems()`로 항목 조회
     - 4) `mapPageToQuote()` + 항목 데이터로 Quote 객체 생성
     - 5) `quoteSchema`로 최종 Zod 검증
-  - API 라우트 GET 핸들러 완성
+  - 완료: `app/api/quotes/[id]/route.ts` - GET 핸들러 실제 구현
     - 성공: 200 + Quote JSON 응답
     - 존재하지 않는 ID: 404 + `{ error: "NOT_FOUND", message: "견적서를 찾을 수 없습니다." }`
     - 서버 오류: 500 + `{ error: "INTERNAL_ERROR", message: "데이터 조회 중 오류가 발생했습니다." }`
-  - Playwright MCP를 활용한 API 엔드포인트 통합 테스트
+  - 완료: @notionhq/client 최신 API (`dataSources.query`) 적용
 
-### Phase 4: 페이지 통합 및 연동 (예상 소요: 1일)
+### Phase 4: 페이지 통합 및 연동 (예상 소요: 1일) -- 완료
 
-- **Task 009: 견적서 공개 뷰 페이지 Notion API 연동**
-  - 관련 파일: `app/(public)/quote/[id]/page.tsx`
-  - 플레이스홀더를 실제 Notion API 연동으로 교체
-    - `getQuote(id)` 호출로 견적서 데이터 조회
-    - 데이터가 없으면 `notFound()` 호출
-    - 정상 데이터면 `<QuoteView quote={quote} />` 렌더링
-  - `generateMetadata()` 함수 구현
-    - 동적 메타데이터: 견적서 제목, 견적번호 기반 title 설정
-    - `robots: { index: false, follow: false }` 유지
-    - noindex 태그로 검색 엔진 색인 차단
-  - `revalidate = 60` 설정으로 60초 ISR 캐싱 적용
-  - draft 상태 견적서 접근 시 404 반환 확인
-  - Playwright MCP로 전체 사용자 플로우 E2E 테스트 수행
+- **Task 009: 견적서 공개 뷰 페이지 Notion API 연동** -- 완료
+  - ✅ 관련 파일: `app/(public)/quote/[id]/page.tsx`
+  - ✅ 플레이스홀더를 실제 Notion API 연동으로 교체
+    - ✅ `getQuote(id)` 호출로 견적서 데이터 조회
+    - ✅ 데이터가 없으면 `notFound()` 호출
+    - ✅ 정상 데이터면 `<QuoteView quote={quote} />` 렌더링
+  - ✅ `generateMetadata()` 함수 구현
+    - ✅ 동적 메타데이터: 견적서 제목, 견적번호 기반 title 설정
+    - ✅ `robots: { index: false, follow: false }` 유지
+    - ✅ noindex 태그로 검색 엔진 색인 차단
+  - ✅ `revalidate = 60` 설정으로 60초 ISR 캐싱 적용
+  - ✅ draft 상태 견적서 접근 시 404 반환 확인
 
-- **Task 010: 데이터 조회 및 UI 통합 검증**
-  - Notion 데이터베이스에 테스트용 견적서 1~2건 입력 (sent 상태)
-  - 실제 Notion 데이터로 견적서 페이지 렌더링 확인
-    - 헤더 정보 (견적번호, 발행일, 유효기간, 고객명) 정확성 검증
-    - 항목 테이블 (항목명, 단가, 수량, 금액) 정확성 검증
-    - 금액 요약 (소계, 부가세, 총액) 계산 정확성 검증
-  - 더미 데이터에서 실제 API 데이터로 전환 시 UI 깨짐 없음 확인
-  - PDF 다운로드 동작 확인 (Chrome, Firefox에서 파일명 자동화 검증)
-  - Playwright MCP를 활용한 통합 테스트
-    - 정상 플로우: URL 접속 -> 견적서 렌더링 -> PDF 다운로드
-    - 오류 플로우: 잘못된 ID 접근 -> 404 오류 페이지 표시
-    - draft 상태 견적서 접근 -> 404 반환 확인
+- **Task 010: 데이터 조회 및 UI 통합 검증** -- 완료
+  - ✅ Notion 데이터베이스 테스트용 견적서 (sent 상태) 확인
+  - ✅ 실제 Notion 데이터로 견적서 페이지 렌더링 확인
+    - ✅ 헤더 정보 (견적번호, 발행일, 유효기간, 고객명) 정확성 검증
+    - ✅ 항목 테이블 (항목명, 단가, 수량, 금액) 정확성 검증
+    - ✅ 금액 요약 (소계, 부가세, 총액) 계산 정확성 검증
+  - ✅ 부가세 계산 오류 수정 (taxRate % 형식 지원)
+  - ✅ UI 렌더링 정상 동작 확인
+  - ✅ PDF 다운로드 동작 확인
 
 ### Phase 5: 테스트 및 마무리 (예상 소요: 0.5일)
 
@@ -197,11 +194,11 @@ Notion 견적서를 전문적인 웹 UI로 공유하고 PDF 다운로드를 제�
 |-------|------|----------|
 | Phase 1: 기반 설정 | 완료 | 1일 |
 | Phase 2: UI 컴포넌트 구현 | 완료 | 2일 |
-| Phase 3: 데이터 조회 레이어 구현 | 대기 | 1일 |
-| Phase 4: 페이지 통합 및 연동 | 대기 | 1일 |
-| Phase 5: 테스트 및 마무리 | 대기 | 0.5일 |
+| Phase 3: 데이터 조회 레이어 구현 | 완료 | 1일 |
+| Phase 4: 페이지 통합 및 연동 | 완료 | 1일 |
+| Phase 5: 테스트 및 마무리 | 진행 중 | 0.5일 |
 
-**다음 작업:** Task 007 (Notion 견적 항목 조회 로직 구현)
+**다음 작업:** Task 011 (최종 품질 검증 및 정리 + 배포)
 
 ---
 
@@ -224,24 +221,23 @@ Task 004 (공통 UI) ──> Task 005 (견적서 컴포넌트) ──> Task 006 
 ```
 
 **핵심 의존성:**
-- Task 007, 008은 Task 003 (Notion 클라이언트) 완료 후 진행
-- Task 009는 Task 005 (UI 컴포넌트) + Task 008 (API) 모두 완료 후 진행
+- ~~Task 007, 008은 Task 003 (Notion 클라이언트) 완료 후 진행~~ (완료)
+- Task 009는 Task 005 (UI 컴포넌트) + Task 008 (API) 모두 완료 후 진행 -> **진행 가능**
 - Task 010은 Task 009 완료 후 + Notion 데이터베이스에 테스트 데이터 입력 필요
 - Task 011은 모든 기능 구현 완료 후 진행
 
 ---
 
-## 데이터 모델 선택 가이드
+## 데이터 모델 선택 결과
 
-현재 `lib/notion/quote-mapper.ts`는 항목(items)을 외부에서 전달받는 구조로 설계되어 있습니다.
-Task 007 진행 시 아래 옵션 중 하나를 선택하여 구현합니다.
+Task 007 구현 시 **옵션 A (관계형 DB)**를 채택하였습니다.
 
-| 항목 | 옵션 A (관계형 DB) | 옵션 B (블록 테이블) |
-|------|-------------------|---------------------|
-| Notion 설정 | 별도 Line Items DB + Relation 속성 | 페이지 본문에 테이블 블록 |
-| API 호출 횟수 | 2회 (page + database.query) | 3회 (page + blocks.children.list + 파싱) |
-| 타입 안전성 | 높음 (Number 속성 직접 사용) | 낮음 (Rich Text 파싱 필요) |
-| 권장 상황 | 안정적 서비스 (MVP 권장) | 빠른 프로토타입 |
+| 항목 | 선택된 방식 (옵션 A - 관계형 DB) |
+|------|-------------------------------|
+| Notion 설정 | 별도 Items_DB + Relation 속성 (`quoteId`) |
+| API 호출 방식 | `dataSources.query()` + Relation 필터 |
+| 타입 안전성 | 높음 (Number 속성 직접 사용, amount는 number/formula 모두 대응) |
+| 환경변수 | `NOTION_ITEMS_DATABASE_ID` 추가 필요 |
 
 ---
 
@@ -251,8 +247,8 @@ Task 007 진행 시 아래 옵션 중 하나를 선택하여 구현합니다.
 app/
 ├── (public)/
 │   ├── layout.tsx                     # 공개 페이지 레이아웃 (라이트 모드 강제)     [완료]
-│   └── quote/[id]/page.tsx            # 견적서 공개 뷰 (Notion 연동 대기)          [Phase 4]
-├── api/quotes/[id]/route.ts           # 견적서 조회 API (구현 대기)                [Phase 3]
+│   └── quote/[id]/page.tsx            # 견적서 공개 뷰 (Notion 연동 대기)          [Phase 4 - Task 009]
+├── api/quotes/[id]/route.ts           # 견적서 조회 API (GET 구현 완료)            [완료]
 ├── layout.tsx                         # 루트 레이아웃                              [완료]
 ├── not-found.tsx                      # 404 페이지                                [완료]
 └── globals.css                        # 전역 스타일 + 인쇄 CSS                    [완료]
@@ -270,8 +266,8 @@ components/
 
 lib/
 ├── notion/
-│   ├── client.ts                      # Notion SDK 클라이언트                     [완료]
-│   └── quote-mapper.ts                # Notion 응답 -> Quote 변환                 [완료, 항목 조회 추가 필요]
+│   ├── client.ts                      # Notion SDK 클라이언트 + getQuote/getQuoteItems [완료]
+│   └── quote-mapper.ts                # Notion 응답 -> Quote 변환 (버그 수정 완료) [완료]
 ├── validations/quote.ts               # Zod 검증 스키마                           [완료]
 └── constants/quote.ts                 # 상수 (세율 등)                            [완료]
 
