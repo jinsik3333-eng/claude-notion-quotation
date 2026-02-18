@@ -24,13 +24,16 @@ export function mapPageToQuote(
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
 
-  // Notion에서 percentage 포맷의 taxRate는 정수로 반환됨 (예: 10 = 10%)
-  // 소수 단위로 변환 필요 (10 / 100 = 0.1)
-  const rawTaxRate =
+  // Notion에서 taxRate는 % 형식(정수, 예: 10 = 10%)으로 저장됨
+  // 기존 데이터와의 호환을 위해 소수 형식(0.1 = 10%)도 지원
+  let taxRateValue =
     props.taxRate?.type === "number" && props.taxRate.number !== null
       ? props.taxRate.number
-      : DEFAULT_TAX_RATE * 100;
-  const taxRate = rawTaxRate / 100;
+      : DEFAULT_TAX_RATE;
+
+  // % 형식(0-100)과 소수 형식(0-1)을 모두 처리
+  // 1보다 크면 % 형식(10), 1 이하면 소수 형식(0.1)
+  const taxRate = taxRateValue > 1 ? taxRateValue / 100 : taxRateValue;
   const taxAmount = Math.round(subtotal * taxRate);
   const totalAmount = subtotal + taxAmount;
 
