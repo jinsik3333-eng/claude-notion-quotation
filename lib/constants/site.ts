@@ -4,14 +4,7 @@ import type { SiteConfig } from "@/types";
  * 사이트 기본 설정 상수
  */
 export const siteConfig: SiteConfig = {
-  name: "Claude Next.js Starters",
-  description: "모던 Next.js 웹 스타터킷 - Atomic Design, shadcn/ui, TypeScript",
-  url: "https://claude-nextjs-starters.vercel.app",
-  ogImage: "https://claude-nextjs-starters.vercel.app/og-image.png",
-  mailSupport: "support@example.com",
-  links: {
-    twitter: "https://twitter.com/anthropics",
-    github: "https://github.com/anthropics/claude-code",
-    linkedin: "https://linkedin.com/company/anthropic",
-  },
+  name: "invoice-web",
+  description: "Notion 견적서 웹 공유 & PDF 다운로드 서비스",
+  url: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
 };

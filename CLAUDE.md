@@ -1,166 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+**invoice-web**는 Notion 견적서를 전문적인 웹 UI로 공유하고 PDF 다운로드를 제공하는 서비스입니다.
 
-## Project Overview
+상세 프로젝트 요구사항은 @/docs/PRD.md 참조
 
-Modern Next.js 16 + React 19 starter kit with Atomic Design pattern, shadcn/ui, and TypeScript. The project implements a marketing website with authentication and dashboard functionality.
+---
 
-**Tech Stack:**
+## 핵심 기술 스택
+
 - Next.js 16 (App Router), React 19, TypeScript 5
 - Styling: Tailwind CSS 4 + shadcn/ui
-- Forms: React Hook Form + Zod for validation
-- State Management: Zustand
-- Notifications: Sonner
+- Validation: Zod
+- Notion: @notionhq/client (설치 필요)
 - Icons: Lucide React
-- Theme: next-themes (light/dark mode)
 
 ---
 
-## Essential Commands
+## 필수 명령어
 
 ```bash
-# Development
-npm run dev          # Start dev server (http://localhost:3000)
+# 개발
+npm run dev          # 개발 서버 실행 (http://localhost:3000)
 
-# Building
-npm run build        # Production build
-npm start            # Start production server
+# 빌드
+npm run build        # 프로덕션 빌드
+npm start            # 프로덕션 서버 실행
 
-# Linting
-npm run lint         # Run ESLint check
-npm run lint -- --fix  # Auto-fix linting issues
+# 린트
+npm run lint         # ESLint 검사
+npm run lint -- --fix  # 자동 수정
+
+# 타입 검사
+npx tsc --noEmit     # TypeScript 오류 확인
 ```
 
 ---
 
-## Project Architecture
-
-### Directory Structure
+## 프로젝트 구조
 
 ```
-app/                          # Next.js App Router
-├── (auth)/                   # Auth route group (login, signup)
-├── (marketing)/              # Public pages (home, about, contact, docs, etc.)
-├── (dashboard)/              # Protected dashboard pages (settings, profile)
-├── layout.tsx                # Root layout with header, footer, theme provider
-└── not-found.tsx             # 404 page
+app/
+├── (public)/
+│   └── quote/[id]/page.tsx    # 견적서 공개 뷰 (서버 컴포넌트)
+├── api/quotes/[id]/route.ts   # 견적서 조회 API
+├── layout.tsx                 # 루트 레이아웃
+├── not-found.tsx              # 404 페이지
+└── globals.css                # 전역 스타일 + 인쇄 CSS
 
-components/                   # Atomic Design hierarchy
-├── ui/                       # shadcn/ui primitive components (button, input, etc.)
-├── atoms/                    # Smallest reusable units (Logo, ThemeToggle)
-├── molecules/                # Simple component combinations (NavItem, PageHeader)
-├── organisms/                # Complex features (Header, Sidebar, ContactForm)
-└── templates/                # Layout wrappers (DefaultLayout, DashboardLayout)
+components/                    # Atomic Design 계층 구조
+├── ui/                        # shadcn/ui 기본 컴포넌트
+├── atoms/                     # 최소 단위 컴포넌트
+├── molecules/
+│   └── pdf-download-button.tsx  # PDF 다운로드 (클라이언트 컴포넌트)
+└── organisms/
+    ├── quote-view.tsx          # 견적서 전체 뷰
+    ├── quote-header.tsx        # 헤더 정보
+    ├── quote-items-table.tsx   # 항목 테이블
+    ├── quote-summary.tsx       # 금액 요약
+    └── quote-error.tsx         # 오류 안내
 
 lib/
-├── utils.ts                  # Utility functions (cn() for Tailwind classes)
-├── constants/
-│   ├── nav.ts               # Navigation configuration
-│   └── site.ts              # Site metadata
-└── validations/             # Zod schemas for forms (auth.ts, contact.ts)
+├── notion/
+│   ├── client.ts              # Notion SDK 클라이언트 (서버 전용)
+│   └── quote-mapper.ts        # Notion 응답 → Quote 타입 변환
+├── validations/quote.ts       # Zod 검증 스키마
+└── constants/quote.ts         # 상수 (세율 등)
 
-types/                       # Global TypeScript definitions
-```
-
-### Atomic Design Implementation
-
-**Components follow strict hierarchy:**
-
-1. **ui/** - shadcn/ui primitives (no business logic)
-2. **atoms/** - Single interactive elements, no dependencies between atoms
-3. **molecules/** - Combinations of atoms (e.g., NavItem = Link + Icon + Label)
-4. **organisms/** - Complex features with state/logic (e.g., LoginForm, Header)
-5. **templates/** - Layout structures (e.g., DefaultLayout, DashboardLayout)
-
-### Route Groups
-
-- `(auth)` - Login/Signup pages with AuthLayout
-- `(marketing)` - Public pages with DefaultLayout and Header/Footer
-- `(dashboard)` - Protected dashboard with DashboardLayout and Sidebar
-
----
-
-## Key Files & Patterns
-
-### Form Validation
-
-All forms use **React Hook Form + Zod** pattern:
-
-**Location:** `lib/validations/auth.ts`
-
-```typescript
-// Define schema with Zod
-export const loginSchema = z.object({
-  email: z.string().email("Invalid email"),
-  password: z.string().min(6, "Min 6 characters"),
-});
-
-export type LoginInput = z.infer<typeof loginSchema>;
-```
-
-**Usage in component:** `components/organisms/login-form.tsx`
-
-```typescript
-const form = useForm<LoginInput>({
-  resolver: zodResolver(loginSchema),
-});
-```
-
-### Configuration & Constants
-
-- **Navigation:** `lib/constants/nav.ts` - Menu structure for header and sidebar
-- **Site Config:** `lib/constants/site.ts` - Site metadata, links
-
-### Styling
-
-**Utility function:** `lib/utils.ts` exports `cn()` for merging Tailwind classes:
-
-```typescript
-cn("px-2 py-1", isActive && "bg-blue-500", className)
+types/
+└── quote.ts                   # Quote, QuoteItem 타입 정의
 ```
 
 ---
 
-## Adding New Features
+## 컴포넌트 추가 규칙 (Atomic Design)
 
-### Adding a New Page
+1. **shadcn/ui 기본 요소** (button, input, table 등) -> `components/ui/`
+2. **단일 스타일 요소** -> `components/atoms/`
+3. **atoms 조합** -> `components/molecules/`
+4. **상태/로직 포함 복합 컴포넌트** -> `components/organisms/`
+5. **레이아웃 래퍼** -> `components/templates/`
 
-1. Create folder structure: `app/(group)/new-page/page.tsx`
-2. Export `metadata` object for SEO
-3. Use appropriate layout (DefaultLayout for marketing, DashboardLayout for dashboard)
-4. Example:
-   ```typescript
-   export const metadata = {
-     title: "New Page | Claude Next.js Starters",
-   };
-   export default function NewPage() { ... }
-   ```
+**컴포넌트 기본 구조:**
 
-### Adding a New Component
-
-**Follow Atomic Design hierarchy:**
-
-1. **If primitive (button, input, card):** Use shadcn/ui
-2. **If single element with styling:** Add to `components/atoms/`
-3. **If combination of atoms:** Add to `components/molecules/`
-4. **If complex with logic/state:** Add to `components/organisms/`
-5. **If layout wrapper:** Add to `components/templates/`
-
-**Component structure:**
 ```typescript
-"use client"; // Add if using hooks
+"use client"; // 훅 사용 시에만 추가
 import { cn } from "@/lib/utils";
 
 interface ComponentProps {
   className?: string;
-  // props...
 }
 
-/**
- * Brief description
- */
-export function ComponentName({ className, ...props }: ComponentProps) {
+export function ComponentName({ className }: ComponentProps) {
   return (
     <div className={cn("base-styles", className)}>
       {/* content */}
@@ -169,133 +99,80 @@ export function ComponentName({ className, ...props }: ComponentProps) {
 }
 ```
 
-### Adding Form Validation
+---
 
-1. Create schema in `lib/validations/feature-name.ts`
-2. Export both schema and type: `z.infer<typeof schema>`
-3. Use in component with `zodResolver` from `@hookform/resolvers/zod`
+## Notion API 개발 가이드
 
-### Adding Navigation Items
+### 환경변수 설정
 
-Edit `lib/constants/nav.ts` and add to appropriate menu:
+```bash
+# .env.local
+NOTION_API_KEY=secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NOTION_QUOTE_DATABASE_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Notion 클라이언트 사용 (서버 전용)
 
 ```typescript
-{
-  title: "New Page",
-  href: "/new-page",
-  description: "Description",
-  icon: IconComponent, // from lucide-react
+// lib/notion/client.ts - 서버 사이드에서만 import
+import { notion } from "@/lib/notion/client";
+
+// 페이지 조회
+const page = await notion.pages.retrieve({ page_id: id });
+```
+
+### 견적서 상태 필터링
+
+- `draft` 상태 견적서는 `notFound()` 반환 (공개 접근 차단)
+- `sent`, `accepted` 상태만 공개 접근 허용
+
+---
+
+## 핵심 패턴
+
+### 서버 컴포넌트에서 Notion 데이터 조회
+
+```typescript
+// app/(public)/quote/[id]/page.tsx
+export const revalidate = 60; // 60초 캐싱
+
+export default async function QuotePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  // Notion API 호출 후 QuoteView 렌더링
 }
 ```
 
----
-
-## Important Implementation Details
-
-### Type Safety
-
-- **No `any` type** - Use `ComponentProps<"element">` or define interfaces
-- **Global types:** `types/index.ts` - NavItem, SiteConfig, User
-- **Form types:** Generated from Zod schemas using `z.infer<typeof schema>`
-
-### Dark Mode Support
-
-- Handled by `next-themes` provider in root layout
-- All shadcn/ui components support dark mode automatically
-- Custom styles should respect dark mode: `dark:bg-slate-900`
-
-### Responsive Design
-
-- All pages are responsive by default with Tailwind breakpoints
-- Use `md:`, `lg:` prefixes for responsive behavior
-- Mobile-first approach: base styles apply to all sizes
-
-### State Management (Zustand)
-
-If needed, create stores in `lib/store/` and use hooks in components:
+### PDF 다운로드 (클라이언트 컴포넌트)
 
 ```typescript
-import { useStore } from "@/lib/store/user-store";
-const { user, setUser } = useStore();
+"use client";
+// document.title 임시 변경으로 PDF 파일명 자동화
+document.title = `견적서_${quote.quoteNumber}_${quote.clientName}`;
+window.print();
 ```
 
-### Page Metadata
+### 인쇄 시 숨길 요소
 
-All page components must export `metadata`:
-
-```typescript
-export const metadata = {
-  title: "Page Title | Claude Next.js Starters",
-  description: "Page description for SEO",
-};
+```tsx
+// Tailwind print 유틸리티 사용
+<div className="print:hidden">PDF 다운로드 버튼</div>
 ```
 
 ---
 
-## Recent Changes & Bug Fixes
+## 타입 안전성 규칙
 
-### Fixed Issues (Latest)
-- CTA button visibility improved (added `bg-transparent` class)
-- TypeScript type errors fixed (React ComponentType import)
-- Settings page refactored with shadcn/ui components
-- Form password fields now properly wrapped in `<form>` tags
-- Form inputs now support browser autocomplete with `autoComplete` attribute
-- Removed unused imports to clean up code
+- `any` 타입 사용 금지
+- `types/quote.ts`의 `Quote`, `QuoteItem` 인터페이스 사용
+- Notion API 응답은 `lib/validations/quote.ts` Zod 스키마로 검증
+- `lib/notion/quote-mapper.ts`에서 Notion 응답 → Quote 타입 변환
 
 ---
 
-## Development Tips
+## 디버깅
 
-1. **Hot Reload:** Changes auto-reload in dev mode (preserve form state with React Hook Form)
-2. **Component Preview:** Use shadcn/ui storybook components as reference
-3. **Validation First:** Define Zod schemas before building forms
-4. **CSS Conflicts:** Use `cn()` utility instead of direct string concatenation
-5. **Internationalization:** All text is currently in Korean; extract to i18n if needed
-6. **SEO:** Always include metadata for new pages
-
----
-
-## Common Workflows
-
-### Building a Form Page
-
-1. Define validation schema in `lib/validations/`
-2. Create organism component in `components/organisms/` with React Hook Form
-3. Use shadcn/ui inputs, buttons
-4. Add error messages with FormMessage
-5. Handle submission with async function + toast notifications
-
-### Creating a Settings Section
-
-1. Use Card component for sections (shadcn/ui)
-2. Group related inputs in div with space-y-4
-3. Use Label + Input/Select for form fields
-4. Wrap password fields in `<form>` tag for browser support
-5. Use Button with `type="submit"` inside form
-
-### Adding a New API Route (Future)
-
-1. Create `app/api/route-name/route.ts`
-2. Export `async function POST/GET(request: Request)`
-3. Use proper error handling and response formats
-4. Add request/response types for type safety
-
----
-
-## Debugging
-
-- **Console errors:** Check browser console and terminal
-- **Build errors:** Run `npm run build` locally
-- **Type errors:** IDE shows errors; run `npx tsc --noEmit` to verify
-- **Styling issues:** Inspect element and check Tailwind class conflicts with DevTools
-
----
-
-## Performance Considerations
-
-- **Code splitting:** Next.js handles automatically per route
-- **Image optimization:** Use Next.js `Image` component
-- **Bundle size:** Check with `npm run build` output
-- **Lazy loading:** Use `React.lazy()` for heavy components
-- **Memoization:** Use `React.memo()` for frequently re-rendering atoms
-
+- **빌드 오류**: `npm run build` 로컬 실행
+- **타입 오류**: `npx tsc --noEmit`
+- **Notion API 오류**: `/api/quotes/[실제ID]` 접근하여 응답 확인
+- **스타일 충돌**: `cn()` 유틸리티 사용 (직접 문자열 연결 금지)
+- **인쇄 레이아웃**: 브라우저 DevTools의 인쇄 미리보기 활용

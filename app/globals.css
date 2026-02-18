@@ -124,3 +124,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 견적서 인쇄/PDF 스타일 */
+@page {
+  size: A4;
+  margin: 20mm;
+}
+
+@media print {
+  /* PDF 다운로드 버튼 숨김 */
+  .pdf-download-button {
+    display: none !important;
+  }
+
+  /* 견적서 컨테이너 인쇄 최적화 */
+  .quote-container {
+    box-shadow: none !important;
+    border: 1px solid #e5e7eb;
+    page-break-inside: avoid;
+  }
+
+  /* 테이블 페이지 나누기 방지 */
+  table {
+    page-break-inside: avoid;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* 인쇄 시 색상 정확도 보장 */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* 다크모드에서 강제 라이트 테마 */
+  .quote-container {
+    background: white !important;
+  }
+  table {
+    background: white !important;
+    color: black !important;
+  }
+  th,
+  td {
+    background: white !important;
+    color: black !important;
+    border-color: #e5e7eb !important;
+  }
+}
